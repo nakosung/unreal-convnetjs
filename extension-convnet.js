@@ -41,6 +41,7 @@ opt.epsilon_min = 0.05;
 opt.epsilon_test_time = 0.05;
 opt.layer_defs = layer_defs;
 opt.tdtrainer_options = tdtrainer_options;
+opt.flip_interval = 100;
 
 var brain = new deepqlearn.Brain(num_inputs, num_actions, opt); brain // woohoo`
 
