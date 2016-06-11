@@ -252,8 +252,11 @@ var deepqlearn = deepqlearn || { REVISION: 'ALPHA' };
 
       if (this.master) return
 
-      if (this.flip_interval > 0 && this.age % this.flip_interval == 0) {        
-        this.value_net2.fromJSON(this.value_net.toJSON())
+      if (this.flip_interval > 0 && this.age % this.flip_interval == 0) {
+        var json = this.value_net.toJSON()
+        for(var i=0; i<json.layers.length;i++) {
+          this.value_net2.layers[i].fromJSON(json.layers[i])
+        }        
       }
       
       // learn based on experience, once we have some samples to go on
