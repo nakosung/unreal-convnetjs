@@ -5,7 +5,7 @@ const canvas = {
     height: 512
 }
 
-function main() { 
+function main() {  
     let alive = true;
     global.convnetjs = require('./convnetjs/build/convnet')
     global.cnnutil = require('./convnetjs/build/util')
@@ -557,12 +557,22 @@ function main() {
                 }
             },"hello"),
             UMG(Spacer,{'Slot.Size.Rule' : 'Fill'}),
-            UMG(Button,
-                {
-                    WidgetStyle: style.GetButtonStyle("Credits.Button"),
-                    OnClicked: loadnet
-                },
-                UMG.text({ Font: font }, "Load pre-trained net")
+            UMG.span({},
+                _.map({
+                    "Load pre-trained net": loadnet,
+                    "Reload": reload,
+                    "Start learn": startlearn,
+                    "Stop learn": stoplearn
+                },(v,k) => 
+                    UMG(Button,
+                        {
+                            'Slot.Size.Rule' : 'Fill',
+                            WidgetStyle: style.GetButtonStyle("FlatButton.Dark"),
+                            OnClicked: v
+                        },
+                        UMG.text({ Font: font }, k)
+                    )
+                )
             )
         )
     })    
