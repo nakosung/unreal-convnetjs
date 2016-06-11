@@ -7,3 +7,7 @@
 
 ## install
 1. This software can be installed via [Unreal.js package control](https://github.com/ncsoft/Unreal.js-packages)
+
+## modifications to original convnetjs rldemo
+1. co-operative multi-agents 
+2. agents share same brain and replay memory
