@@ -1,5 +1,6 @@
 "use strict";
 
+const scale = 0.6
 const canvas = {
     width: 700,
     height: 512
@@ -10,9 +11,43 @@ const chartcanvas = {
     height : 150
 }
 
+let spec = `var num_inputs = 36; // 9 eyes, each sees 4 numbers (wall, green, red thing, other agent proximity)
+var num_actions = 5; // 5 possible angles agent can turn
+var temporal_window = 1; // amount of temporal memory. 0 = agent lives in-the-moment :)
+var network_size = num_inputs * temporal_window + num_actions * temporal_window + num_inputs;
+
+// the value function network computes a value of taking any of the possible actions
+// given an input state. Here we specify one explicitly the hard way
+// but user could also equivalently instead use opt.hidden_layer_sizes = [20,20]
+// to just insert simple relu hidden layers.
+var layer_defs = [];
+layer_defs.push({ type: 'input', out_sx: 1, out_sy: 1, out_depth: network_size });
+layer_defs.push({ type: 'fc', num_neurons: 50, activation: 'relu' });
+layer_defs.push({ type: 'fc', num_neurons: 50, activation: 'relu' });
+layer_defs.push({ type: 'regression', num_neurons: num_actions });
+
+// options for the Temporal Difference learner that trains the above net
+// by backpropping the temporal difference learning rule.
+var tdtrainer_options = { learning_rate: 0.001, momentum: 0.0, batch_size: 64, l2_decay: 0.01 };
+
+var opt = {};
+opt.temporal_window = temporal_window;
+opt.experience_size = 30000 * num_agents;
+opt.start_learn_threshold = 1000 * num_agents;
+opt.gamma = 0.9;
+opt.learning_steps_total = 200000;
+opt.learning_steps_burnin = 3000;
+opt.epsilon_min = 0.05;
+opt.epsilon_test_time = 0.05;
+opt.layer_defs = layer_defs;
+opt.tdtrainer_options = tdtrainer_options;
+
+var brain = new deepqlearn.Brain(num_inputs, num_actions, opt); brain // woohoo`
+
 const I = require('instantiator')
 
-function main() {  
+function main() {
+    let editor;  
     let alive = true;
     global.convnetjs = require('./convnetjs/build/convnet')
     global.cnnutil = require('./convnetjs/build/util')
@@ -343,42 +378,10 @@ function main() {
         this.rad = 10;
         this.eyes = [];
         for (var k = 0; k < 9; k++) { this.eyes.push(new Eye((k - 3) * 0.25)); }
-
+                
         // braaain
         //this.brain = new deepqlearn.Brain(this.eyes.length * 3, this.actions.length);
-        var num_inputs = 36; // 9 eyes, each sees 4 numbers (wall, green, red thing proximity)
-        var num_actions = 5; // 5 possible angles agent can turn
-        var temporal_window = 1; // amount of temporal memory. 0 = agent lives in-the-moment :)
-        var network_size = num_inputs * temporal_window + num_actions * temporal_window + num_inputs;
-
-        // the value function network computes a value of taking any of the possible actions
-        // given an input state. Here we specify one explicitly the hard way
-        // but user could also equivalently instead use opt.hidden_layer_sizes = [20,20]
-        // to just insert simple relu hidden layers.
-        var layer_defs = [];
-        layer_defs.push({ type: 'input', out_sx: 1, out_sy: 1, out_depth: network_size });
-        layer_defs.push({ type: 'fc', num_neurons: 50, activation: 'relu' });
-        layer_defs.push({ type: 'fc', num_neurons: 50, activation: 'relu' });
-        layer_defs.push({ type: 'regression', num_neurons: num_actions });
-
-        // options for the Temporal Difference learner that trains the above net
-        // by backpropping the temporal difference learning rule.
-        var tdtrainer_options = { learning_rate: 0.001, momentum: 0.0, batch_size: 64, l2_decay: 0.01 };
-
-        var opt = {};
-        opt.temporal_window = temporal_window;
-        opt.experience_size = 30000 * num_agents;
-        opt.start_learn_threshold = 1000 * num_agents;
-        opt.gamma = 0.9;
-        opt.learning_steps_total = 200000;
-        opt.learning_steps_burnin = 3000;
-        opt.epsilon_min = 0.05;
-        opt.epsilon_test_time = 0.05;
-        opt.layer_defs = layer_defs;
-        opt.tdtrainer_options = tdtrainer_options;
-
-        var brain = new deepqlearn.Brain(num_inputs, num_actions, opt); // woohoo
-        this.brain = brain;
+        this.brain = eval(spec)        
 
         this.reward_bonus = 0.0;
         this.digestion_signal = 0.0;
@@ -471,15 +474,29 @@ function main() {
     }
 
     function reload() {
+        spec = editor.GetText()
         w.agents = _.range(num_agents).map(_ => new Agent()); // this should simply work. I think... ;\
         shareBrain()
     }
 
+    let path = Context.GetScriptFileFullPath(__dirname)    
+    let pretrainedPath = path.substr(0,path.lastIndexOf('/'))+'/pretrained.json'
+
     function loadnet() {
-        let j = require('./pretrained.json')
+        let j = JSON.parse(Context.ReadStringFromFile(pretrainedPath))
         w.agents.forEach(agent => agent.brain.value_net.fromJSON(j));
+        w.agents.forEach(agent => agent.brain.value_net2.fromJSON(j));
         shareBrain()
         stoplearn(); // also stop learning      
+    }
+
+    function savenet() {
+        var b = w.agents[0].brain;
+        b = b.master || b;
+        var j = b.value_net.toJSON();
+        var t = JSON.stringify(j);
+        Context.WriteStringToFile(pretrainedPath,t)
+        console.log(pretrainedPath,t)
     }
 
     var w; // global world object
@@ -561,12 +578,19 @@ function main() {
                 let red = {R:1,A:1}
                 let black = {A:1}
                 let green = {G:1,A:1}
-                let blue = {B:1,A:1}
+                let blue = {B:1,A:1}                
                 function line(x1,y1,x2,y2,color) {
+                    x1 *= scale
+                    x2 *= scale
+                    y1 *= scale
+                    y2 *= scale
                     context.DrawLine({X:x1,Y:y1},{X:x2,Y:y2},color,true)
                 }
 
                 function circle(x,y,r,color) {
+                    x *= scale
+                    y *= scale
+                    r *= scale
                     context.DrawBox({X:x-r,Y:y-r},{X:2*r,Y:2*r},asset,color)
                 }
 
@@ -630,16 +654,18 @@ function main() {
             FontObject: Root.GetEngine().SmallFont
         }        
 
-        return UMG.div({},
-            UMG(SizeBox,
-                {
-                    WidthOverride : canvas.width,
-                    HeightOverride : canvas.height
-                },
-                UMG(TestWidget_C,{})
-            ),
-            UMG.span({},
-                UMG(JavascriptListView,
+        let Chart = UMG(SizeBox,
+            {
+                WidthOverride : chartcanvas.width,
+                HeightOverride : chartcanvas.height
+            },
+            UMG(ChartWidget_C,{})
+        )
+        let Parameters = UMG(SizeBox,
+            {
+                WidthOverride : chartcanvas.width,                
+            },
+            UMG(JavascriptListView,
                 {
                     'Slot.Size.Rule':'Fill',
                     Columns:[
@@ -673,16 +699,37 @@ function main() {
                         elem.Items = stats
                         elem.RequestListRefresh()
                     }
-                }),
-                UMG(SizeBox,
-                    {
-                        WidthOverride : chartcanvas.width,
-                        HeightOverride : chartcanvas.height
-                    },
-                    UMG(ChartWidget_C,{})
-                )
-            ),            
+                })
+        )
+
+        let Game = UMG(SizeBox,
+            {
+                WidthOverride : canvas.width * scale,
+                HeightOverride : canvas.height * scale
+            },
+            UMG(TestWidget_C,{})
+        )
+
+        return UMG.div({},
+            UMG.span({},
+                Game,
+                UMG.div({},
+                    Parameters,
+                    Chart
+                )                
+            ),
             UMG(Spacer,{'Slot.Size.Rule' : 'Fill'}),
+            UMG(SizeBox,
+                {
+                    HeightOverride:200,
+                },
+                UMG(MultiLineEditableTextBox, {
+                    'slot.size.size-rule': 'Fill',
+                    WidgetStyle: style.GetEditableTextBoxStyle('Graph.StateNode.NodeTitleEditableText'),
+                    Text: spec,
+                    $link: elem => editor = elem                
+                })
+            ),
             UMG.span({},
                 _.map({
                     "Very fast": goveryfast,
@@ -703,6 +750,7 @@ function main() {
             UMG.span({},
                 _.map({
                     "Load pre-trained net": loadnet,
+                    "Save trained net": savenet,
                     "Reload": reload,
                     "Start learn": startlearn,
                     "Stop learn": stoplearn

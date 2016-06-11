@@ -97,6 +97,14 @@ var deepqlearn = deepqlearn || { REVISION: 'ALPHA' };
     }
     this.value_net = new convnetjs.Net();
     this.value_net.makeLayers(layer_defs);
+
+    if (this.flip_interval == 0) {
+      this.value_net2 = this.value_net
+    } else {
+      this.value_net2 = new convnetjs.Net();
+      this.value_net2.makeLayers(layer_defs);
+    }
+    
     
     // and finally we need a Temporal Difference Learning trainer!
     var tdtrainer_options = {learning_rate:0.01, momentum:0.0, batch_size:64, l2_decay:0.01};
@@ -110,6 +118,7 @@ var deepqlearn = deepqlearn || { REVISION: 'ALPHA' };
     
     // various housekeeping variables
     this.age = 0; // incremented every backward()
+    this.flip_interval = typeof opt.flip_interval !== 'undefined' ? opt.flip_interval : 100;
     this.forward_passes = 0; // incremented every forward()
     this.epsilon = 1.0; // controls exploration exploitation tradeoff. Should be annealed over time
     this.latest_reward = 0;
@@ -141,7 +150,7 @@ var deepqlearn = deepqlearn || { REVISION: 'ALPHA' };
       // and return the argmax action and its value
       var svol = new convnetjs.Vol(1, 1, this.net_inputs);
       svol.w = s;
-      var action_values = this.value_net.forward(svol);
+      var action_values = this.value_net2.forward(svol);
       var maxk = 0; 
       var maxval = action_values.w[0];
       for(var k=1;k<this.num_actions;k++) {
@@ -242,6 +251,10 @@ var deepqlearn = deepqlearn || { REVISION: 'ALPHA' };
       }
 
       if (this.master) return
+
+      if (this.flip_interval > 0 && this.age % this.flip_interval == 0) {        
+        this.value_net2.fromJSON(this.value_net.toJSON())
+      }
       
       // learn based on experience, once we have some samples to go on
       // this is where the magic happens...

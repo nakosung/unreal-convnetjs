@@ -11,3 +11,4 @@
 ## modifications to original convnetjs rldemo
 1. co-operative multi-agents 
 2. agents share same brain and replay memory
+3. double q learning
