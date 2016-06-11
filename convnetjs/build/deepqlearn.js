@@ -189,8 +189,8 @@ var deepqlearn = deepqlearn || { REVISION: 'ALPHA' };
           // choose a random action with epsilon probability
           action = this.random_action();
         } else {
-          // otherwise use our policy to make decision
-          var maxact = this.policy(net_input);
+          // otherwise use our policy to make decision          
+          var maxact = (this.master || this).policy(net_input);
           action = maxact.action;
        }
       } else {
@@ -216,9 +216,9 @@ var deepqlearn = deepqlearn || { REVISION: 'ALPHA' };
       this.reward_window.shift();
       this.reward_window.push(reward);
       
-      if(!this.learning) { return; } 
+      if(!this.learning) { return; }
       
-      // various book-keeping
+      // various book-keeping            
       this.age += 1;
       
       // it is time t+1 and we have to store (s_t, a_t, r_t, s_{t+1}) as new experience
@@ -230,14 +230,18 @@ var deepqlearn = deepqlearn || { REVISION: 'ALPHA' };
         e.action0 = this.action_window[n-2];
         e.reward0 = this.reward_window[n-2];
         e.state1 = this.net_window[n-1];
-        if(this.experience.length < this.experience_size) {
-          this.experience.push(e);
+
+        var target = this.master || this        
+        if(target.experience.length < target.experience_size) {
+          target.experience.push(e);
         } else {
           // replace. finite memory!
-          var ri = convnetjs.randi(0, this.experience_size);
-          this.experience[ri] = e;
+          var ri = convnetjs.randi(0, target.experience_size);
+          target.experience[ri] = e;
         }
       }
+
+      if (this.master) return
       
       // learn based on experience, once we have some samples to go on
       // this is where the magic happens...

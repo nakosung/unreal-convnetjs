@@ -24,39 +24,47 @@ var cnnvis = (function(exports){
       if(step > this.step_horizon) this.step_horizon *= 2;
     },
     // elt is a canvas we wish to draw into
-    drawSelf: function(canv) {
-      
-      var pad = 25;
-      var H = canv.height;
-      var W = canv.width;
-      var ctx = canv.getContext('2d');
-
-      ctx.clearRect(0, 0, W, H);
-      ctx.font="10px Georgia";
-
+    drawSelf: function(canv,context) {
       var f2t = function(x) {
         var dd = 1.0 * Math.pow(10, 2);
         return '' + Math.floor(x*dd)/dd;
       }
-
-      // draw guidelines and values
-      ctx.strokeStyle = "#999";
-      ctx.beginPath();
+      let red = {R:1,A:1}
+      let black = {A:1}
+      let green = {G:1,A:1}
+      let blue = {B:1,A:1}
+      let gray = {R:0.7,G:0.7,B:0.7,A:0.25}
+      let white = {R:1,G:1,B:1,A:1}
+      function line(x1, y1, x2, y2, color) {
+        context.DrawLine({ X: x1, Y: y1 }, { X: x2, Y: y2 }, color, true)
+      }
+      function lines(xys, color) {
+        context.DrawLines(xys, color, true)
+      }
+      function text(text, x, y, color) {
+        context.DrawString(
+          text,
+          { X: x, Y: y },
+          color          
+        )
+      }
+      
+      var pad = 25;
+      var H = canv.height;
+      var W = canv.width;
+      
       var ng = 10;
       for(var i=0;i<=ng;i++) {
         var xpos = i/ng*(W-2*pad)+pad;
-        ctx.moveTo(xpos, pad);
-        ctx.lineTo(xpos, H-pad);
-        ctx.fillText(f2t(i/ng*this.step_horizon/1000)+'k',xpos,H-pad+14);
+        line(xpos,pad,xpos,H-pad,gray)
+        text(f2t(i/ng*this.step_horizon/1000)+'k',xpos,H-pad+14, white)
       }
       for(var i=0;i<=ng;i++) {
         var ypos = i/ng*(H-2*pad)+pad;
-        ctx.moveTo(pad, ypos);
-        ctx.lineTo(W-pad, ypos);
-        ctx.fillText(f2t((ng-i)/ng*(this.maxy-this.miny) + this.miny), 0, ypos);
+        line(pad,ypos,W-pad,ypos,gray)
+        text(f2t((ng-i)/ng*(this.maxy-this.miny) + this.miny), 0, ypos, white)
       }
-      ctx.stroke();
-
+      
       var N = this.pts.length;
       if(N<2) return;
 
@@ -64,19 +72,19 @@ var cnnvis = (function(exports){
       var t = function(x, y, s) {
         var tx = x / s.step_horizon * (W-pad*2) + pad;
         var ty = H - ((y-s.miny) / (s.maxy-s.miny) * (H-pad*2) + pad);
-        return {tx:tx, ty:ty}
+        return {X:tx, Y:ty}
       }
 
-      ctx.strokeStyle = "red";
-      ctx.beginPath()
+      var pts = []
+
       for(var i=0;i<N;i++) {
         // draw line from i-1 to i
         var p = this.pts[i];
         var pt = t(p.step, p.y, this);
-        if(i===0) ctx.moveTo(pt.tx, pt.ty);
-        else ctx.lineTo(pt.tx, pt.ty);
-      }
-      ctx.stroke();
+        pts.push(pt)        
+      }      
+
+      lines(pts,red)
     }
   }
 

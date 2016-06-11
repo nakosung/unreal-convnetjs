@@ -5,10 +5,18 @@ const canvas = {
     height: 512
 }
 
+const chartcanvas = {
+    width : 400,
+    height : 150
+}
+
+const I = require('instantiator')
+
 function main() {  
     let alive = true;
     global.convnetjs = require('./convnetjs/build/convnet')
     global.cnnutil = require('./convnetjs/build/util')
+    global.cnnvis = require('./convnetjs/build/vis')
     global.deepqlearn = require('./convnetjs/build/deepqlearn')
     let _ = require('lodash')
 
@@ -110,7 +118,7 @@ function main() {
 
         // set up food and poison
         this.items = []
-        for (var k = 0; k < 30; k++) {
+        for (var k = 0; k < num_items; k++) {
             var x = convnetjs.randf(20, this.W - 20);
             var y = convnetjs.randf(20, this.H - 20);
             var t = convnetjs.randi(1, 3); // food or poison (1 and 2)
@@ -121,7 +129,7 @@ function main() {
 
     World.prototype = {
         // helper function to get closest colliding walls/items
-        stuff_collide_: function (p1, p2, check_walls, check_items) {
+        stuff_collide_: function (p1, p2, check_walls, check_items, check_agents) {
             var minres = false;
 
             // collide with walls
@@ -158,6 +166,23 @@ function main() {
                 }
             }
 
+            // collide with agents
+            if (check_agents) {
+                for (var i = 0, n = this.agents.length; i < n; i++) {
+                    var it = this.agents[i];
+                    // skip self
+                    if (it == check_agents) continue;
+                    var res = line_point_intersect(p1, p2, it.p, it.rad);
+                    if (res) {
+                        res.type = 3; // store type of item
+                        if (!minres) { minres = res; }
+                        else {
+                            if (res.ua < minres.ua) { minres = res; }
+                        }
+                    }
+                }
+            }
+
             return minres;
         },
         tick: function () {
@@ -174,7 +199,7 @@ function main() {
                     // we have a line from p to p->eyep
                     var eyep = new Vec(a.p.x + e.max_range * Math.sin(a.angle + e.angle),
                         a.p.y + e.max_range * Math.cos(a.angle + e.angle));
-                    var res = this.stuff_collide_(a.p, eyep, true, true);
+                    var res = this.stuff_collide_(a.p, eyep, true, true, a);
                     if (res) {
                         // eye collided with wall
                         e.sensed_proximity = res.up.dist_from(a.p);
@@ -218,8 +243,11 @@ function main() {
                 if (a.angle > 2 * Math.PI) a.angle -= 2 * Math.PI;
 
                 // agent is trying to move from p to op. Check walls
-                var res = this.stuff_collide_(a.op, a.p, true, false);
+                var res = this.stuff_collide_(a.op, a.p, true, false, a);
                 if (res) {
+                    if (res.type == 3) {
+                        a.digestion_signal += -6.0; // ewww agent
+                    }
                     // wall collision! reset position
                     a.p = a.op;
                 }
@@ -269,7 +297,7 @@ function main() {
                 }
                 this.items = nt; // swap
             }
-            if (this.items.length < 30 && this.clock % 10 === 0 && convnetjs.randf(0, 1) < 0.25) {
+            if (this.items.length < num_items && this.clock % 10 === 0 && convnetjs.randf(0, 1) < item_prob) {
                 var newitx = convnetjs.randf(20, this.W - 20);
                 var newity = convnetjs.randf(20, this.H - 20);
                 var newitt = convnetjs.randi(1, 3); // food or poison (1 and 2)
@@ -278,7 +306,7 @@ function main() {
             }
 
             // agents are given the opportunity to learn based on feedback of their action on environment
-            for (var i = 0, n = this.agents.length; i < n; i++) {
+            for (var i = 0, n = this.agents.length; i < n; i++) {                 
                 this.agents[i].backward();
             }
         }
@@ -292,11 +320,15 @@ function main() {
         this.sensed_type = -1; // what does the eye see?
     }
 
+    const num_agents = 10;
+    const num_items = 30 * num_agents;
+    const item_prob = 0.25 * num_agents
+
     // A single agent
     var Agent = function () {
 
         // positional information
-        this.p = new Vec(50, 50);
+        this.p = new Vec(Math.random() * (canvas.width - 20) + 10, Math.random() * (canvas.height - 20) + 10);
         this.op = this.p; // old position
         this.angle = 0; // direction facing
 
@@ -314,7 +346,7 @@ function main() {
 
         // braaain
         //this.brain = new deepqlearn.Brain(this.eyes.length * 3, this.actions.length);
-        var num_inputs = 27; // 9 eyes, each sees 3 numbers (wall, green, red thing proximity)
+        var num_inputs = 36; // 9 eyes, each sees 4 numbers (wall, green, red thing proximity)
         var num_actions = 5; // 5 possible angles agent can turn
         var temporal_window = 1; // amount of temporal memory. 0 = agent lives in-the-moment :)
         var network_size = num_inputs * temporal_window + num_actions * temporal_window + num_inputs;
@@ -335,9 +367,9 @@ function main() {
 
         var opt = {};
         opt.temporal_window = temporal_window;
-        opt.experience_size = 30000;
-        opt.start_learn_threshold = 1000;
-        opt.gamma = 0.7;
+        opt.experience_size = 30000 * num_agents;
+        opt.start_learn_threshold = 1000 * num_agents;
+        opt.gamma = 0.9;
         opt.learning_steps_total = 200000;
         opt.learning_steps_burnin = 3000;
         opt.epsilon_min = 0.05;
@@ -362,16 +394,17 @@ function main() {
             // in forward pass the agent simply behaves in the environment
             // create input to brain
             var num_eyes = this.eyes.length;
-            var input_array = new Array(num_eyes * 3);
+            var input_array = new Array(num_eyes * 4);
             for (var i = 0; i < num_eyes; i++) {
                 var e = this.eyes[i];
-                input_array[i * 3] = 1.0;
-                input_array[i * 3 + 1] = 1.0;
-                input_array[i * 3 + 2] = 1.0;
+                input_array[i * 4] = 1.0;
+                input_array[i * 4 + 1] = 1.0;
+                input_array[i * 4 + 2] = 1.0;
+                input_array[i * 4 + 3] = 1.0;
                 if (e.sensed_type !== -1) {
                     // sensed_type is 0 for wall, 1 for food and 2 for poison.
                     // lets do a 1-of-k encoding into the input array
-                    input_array[i * 3 + e.sensed_type] = e.sensed_proximity / e.max_range; // normalize to [0,1]
+                    input_array[i * 4 + e.sensed_type] = e.sensed_proximity / e.max_range; // normalize to [0,1]
                 }
             }
 
@@ -418,22 +451,34 @@ function main() {
     // Tick the world
     function tick() {
         w.tick();
+        draw_stats()
     }
 
     function startlearn() {
-        w.agents[0].brain.learning = true;
+        w.agents.forEach(agent=>agent.brain.learning = true);
     }
     function stoplearn() {
-        w.agents[0].brain.learning = false;
+        w.agents.forEach(agent=>agent.brain.learning = false);
+    }
+
+    function shareBrain() {
+        let last = w.agents.length-1
+        w.agents.forEach((agent,i) => {
+            if (i != last) {
+                agent.brain.master = w.agents[last].brain
+            }            
+        })
     }
 
     function reload() {
-        w.agents = [new Agent()]; // this should simply work. I think... ;\
+        w.agents = _.range(num_agents).map(_ => new Agent()); // this should simply work. I think... ;\
+        shareBrain()
     }
 
     function loadnet() {
         let j = require('./pretrained.json')
-        w.agents[0].brain.value_net.fromJSON(j);
+        w.agents.forEach(agent => agent.brain.value_net.fromJSON(j));
+        shareBrain()
         stoplearn(); // also stop learning      
     }
 
@@ -442,12 +487,30 @@ function main() {
     var skipdraw = false;
     function start() {
         w = new World();
-        w.agents = [new Agent()];
+        w.agents = _.range(num_agents).map(_ => new Agent()); // this should simply work. I think... ;\
+        shareBrain()
 
         schedule()
     }
 
     var simspeed = 2;
+
+    function goveryfast() {
+      skipdraw = true;
+      simspeed = 3;
+    }
+    function gofast() {
+      skipdraw = false;
+      simspeed = 2;
+    }
+    function gonormal() {
+      skipdraw = false;
+      simspeed = 1;
+    }
+    function goslow() {
+      skipdraw = false;
+      simspeed = 0;
+    }
     
     function schedule() {
         if (!alive) return
@@ -458,6 +521,28 @@ function main() {
     }
 
     start()
+
+    let stats = []
+
+    function addStat(key,fn) {
+        let o = new JavascriptObject()
+        stats.push(o)
+        o.key = key
+        o.fn = fn
+    }
+     
+    addStat("experience replay size",b => b.experience.length)
+    addStat("exploration epsilon",b => b.epsilon)
+    addStat('age',b => b.age)
+    addStat('average Q-learning loss', b => b.average_loss_window.get_average());
+    addStat('smooth-ish reward', b => b.average_reward_window.get_average());
+
+    var reward_graph = new cnnvis.Graph();
+    function draw_stats() {
+      if(w.clock % 200 === 0) {
+        reward_graph.add(w.clock/200, _.meanBy(w.agents,a => a.brain.average_reward_window.get_average()));
+      }
+    }         
     
     let UMG = require('UMG')
     makeWindow("$convnet",
@@ -476,6 +561,7 @@ function main() {
                 let red = {R:1,A:1}
                 let black = {A:1}
                 let green = {G:1,A:1}
+                let blue = {B:1,A:1}
                 function line(x1,y1,x2,y2,color) {
                     context.DrawLine({X:x1,Y:y1},{X:x2,Y:y2},color,true)
                 }
@@ -492,12 +578,14 @@ function main() {
                 }
 
                 // draw agents
-                // color agent based on reward it is experiencing at the moment
-                var r = Math.floor(agents[0].brain.latest_reward * 200);
-                if (r > 255) r = 255; if (r < 0) r = 0;
-                let agent = {R:r/255,A:1} 
+                // color agent based on reward it is experiencing at the moment                
+                let agent = {R:1,A:1} 
                 for (var i = 0, n = agents.length; i < n; i++) {
                     var a = agents[i];
+
+                    var r = Math.floor(a.brain.latest_reward * 200);
+                    if (r > 255) r = 255; if (r < 0) r = 0;
+                    agent.R = r/255
 
                     circle(a.op.x, a.op.y, a.rad,agent)                    
 
@@ -510,7 +598,8 @@ function main() {
                             color = black
                         }
                         if (e.sensed_type === 1) { color = red }
-                        if (e.sensed_type === 2) { color = green } 
+                        if (e.sensed_type === 2) { color = green }
+                        if (e.sensed_type === 3) { color = blue } 
                         line(a.op.x, a.op.y,a.op.x + sr * Math.sin(a.oangle + e.angle),
                             a.op.y + sr * Math.cos(a.oangle + e.angle),color);
                     }
@@ -527,11 +616,20 @@ function main() {
             }
         }
 
+        class ChartWidget extends JavascriptWidget {
+            OnPaint(context) {
+                reward_graph.drawSelf(chartcanvas,context)
+            }
+        }
+
         let TestWidget_C = require('uclass')()(global,TestWidget)
+        let ChartWidget_C = require('uclass')()(global,ChartWidget)
+
         let font = {
             Size: 10,
             FontObject: Root.GetEngine().SmallFont
         }        
+
         return UMG.div({},
             UMG(SizeBox,
                 {
@@ -540,23 +638,68 @@ function main() {
                 },
                 UMG(TestWidget_C,{})
             ),
-            UMG.text({
-                Font:font,
-                TextDelegate:_ => {
-                    let b = w.agents[0].brain 
-                    function get() {
-                        let t = ""
-                        t += 'experience replay size: ' + this.experience.length + '\n';
-                        t += 'exploration epsilon: ' + this.epsilon + '\n';
-                        t += 'age: ' + this.age + '\n';
-                        t += 'average Q-learning loss: ' + this.average_loss_window.get_average() + '\n';
-                        t += 'smooth-ish reward: ' + this.average_reward_window.get_average() + '\n';
-                        return t
+            UMG.span({},
+                UMG(JavascriptListView,
+                {
+                    'Slot.Size.Rule':'Fill',
+                    Columns:[
+                        {
+                            Id: 'Name',
+                            Width: 0.5,
+                        },
+                        {
+                            Id: 'Value',
+                            Width: 0.5
+                        }
+                    ],
+                    OnGenerateRowEvent:(item,column) => I(
+                        item ? ( 
+                            column == 'Name' ?
+                            UMG.text({
+                                Font:font
+                            },item.key) :
+                            UMG.text({
+                                Font:font,
+                                TextDelegate:_ => {
+                                    return String(item.fn(w.agents[w.agents.length-1].brain)) 
+                                }
+                            }) 
+                        ) :
+                        UMG.text({
+                            Font:font
+                        },column) 
+                    ),
+                    $link:elem => {
+                        elem.Items = stats
+                        elem.RequestListRefresh()
                     }
-                    return get.call(b)
-                }
-            },"hello"),
+                }),
+                UMG(SizeBox,
+                    {
+                        WidthOverride : chartcanvas.width,
+                        HeightOverride : chartcanvas.height
+                    },
+                    UMG(ChartWidget_C,{})
+                )
+            ),            
             UMG(Spacer,{'Slot.Size.Rule' : 'Fill'}),
+            UMG.span({},
+                _.map({
+                    "Very fast": goveryfast,
+                    "Fast": gofast,
+                    "Normal": gonormal,
+                    "Slow": goslow
+                },(v,k) => 
+                    UMG(Button,
+                        {
+                            'Slot.Size.Rule' : 'Fill',
+                            WidgetStyle: style.GetButtonStyle("FlatButton.Dark"),
+                            OnClicked: v
+                        },
+                        UMG.text({ Font: font }, k)
+                    )
+                )
+            ),
             UMG.span({},
                 _.map({
                     "Load pre-trained net": loadnet,
@@ -584,8 +727,7 @@ function main() {
 
 function makeWindow(key,opts) {
     const _ = require('lodash')
-    const UMG = require('UMG')
-    const I = require('instantiator')
+    const UMG = require('UMG')    
 
     if (!global[key]) {
         let window
