@@ -1,9 +1,13 @@
 "use strict";
 
-const scale = 0.6
+const num_agents = 10;
+const map_scale = Math.sqrt(num_agents);
+const sensor_range = 85 * 4;
+    
+const scale = 0.6 / map_scale
 const canvas = {
-    width: 700,
-    height: 512
+    width: 700 * map_scale,
+    height: 500 * map_scale
 }
 
 const chartcanvas = {
@@ -147,10 +151,12 @@ function main() {
         this.walls = [];
         var pad = 10;
         util_add_box(this.walls, pad, pad, this.W - pad * 2, this.H - pad * 2);
-        util_add_box(this.walls, 100, 100, 200, 300); // inner walls
-        this.walls.pop();
-        util_add_box(this.walls, 400, 100, 200, 300);
-        this.walls.pop();
+        for (var x=100; x< this.W - 100; x+=300) {
+            for (var y=100; y < this.H - 100; y += 400) {
+                util_add_box(this.walls, x, y, 200, 300); // inner walls
+                this.walls.pop();
+            }
+        }        
 
         // set up food and poison
         this.items = []
@@ -351,14 +357,13 @@ function main() {
     // Eye sensor has a maximum range and senses walls
     var Eye = function (angle) {
         this.angle = angle; // angle relative to agent its on
-        this.max_range = 85;
-        this.sensed_proximity = 85; // what the eye is seeing. will be set in world.tick()
+        this.max_range = sensor_range;
+        this.sensed_proximity = sensor_range; // what the eye is seeing. will be set in world.tick()
         this.sensed_type = -1; // what does the eye see?
     }
 
-    const num_agents = 10;
     const num_items = 30 * num_agents;
-    const item_prob = 0.25 * num_agents
+    const item_prob = 0.25 * num_agents;
 
     // A single agent
     var Agent = function () {
